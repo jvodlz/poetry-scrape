@@ -75,20 +75,21 @@ with Session(engine) as session:
         poem_result = requests.get(poem_page_url)
         poem_soup = BeautifulSoup(poem_result.text, "html.parser")
 
-        # Prep getting poem
-        tag = poem_soup.find("script")
-        json_data = json.loads(tag.string)
-        poem_text = json_data["@graph"][0]["description"]
+        #  Get block with Poem 
+        poem_block = poem_soup.find("div", class_="field--body")
 
-        # Poem to db
+        filter_newline = [line.rstrip() for line in poem_block.stripped_strings if line != "\n"]
+        poem_text = "\n".join(filter_newline).strip()
+
+        # # Poem to db
         unpack = metadata.pop(0)
-        print(unpack)
-        title_val, author_val, year_val = unpack
+        # print(unpack)
+        title, author, year = unpack
 
         poem_load = Poem(
-            title = title_val,
-            author = author_val,
-            year = year_val,
+            title = title,
+            author = author,
+            year = year,
             text = poem_text
         )
 
@@ -96,4 +97,5 @@ with Session(engine) as session:
 
     session.commit()
     session.close()
-    print("==== Completed Page ====")
+
+print("====== Success =======")
