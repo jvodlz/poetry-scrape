@@ -1,4 +1,5 @@
 .venv
 .trunk
 
-poems.csv
+notes.txt
+poems.db
