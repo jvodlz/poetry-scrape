@@ -78,8 +78,10 @@ with Session(engine) as session:
         #  Get block with Poem 
         poem_block = poem_soup.find("div", class_="field--body")
 
-        filter_newline = [line.rstrip() for line in poem_block.stripped_strings if line != "\n"]
-        poem_text = "\n".join(filter_newline).strip()
+        # filter_newline = [line.rstrip() for line in poem_block.stripped_strings if line != "\n"]
+        # poem_text = "\n".join(filter_newline).strip()
+
+        poem_text = "".join(poem_block.strings).strip()
 
         # # Poem to db
         unpack = metadata.pop(0)
