@@ -1,5 +1,5 @@
 from bs4 import BeautifulSoup
-import requests, json
+import requests, re, time, random
 from sqlalchemy import create_engine
 from sqlalchemy import String
 from sqlalchemy.orm import Session
@@ -28,76 +28,103 @@ class Poem(Base):
 engine = create_engine("sqlite:///poems.db")
 Base.metadata.create_all(engine)
 
+# Helper functions
+def get_request(page_num):
+    return requests.get(f"{STARTING_URL_PREFIX}{page_num}")
+
+def get_last_page(soup):
+    last_link_tag = soup.find("li", class_=re.compile("pager__item--last"))
+    last_page_link = last_link_tag.find("a")["href"]
+    match = re.search(r"page=(\d+)", last_page_link)
+    return match.group(1)
+
 # Webscrapiing Logic
-
-# TODO: make page update -- inside while loop (inside session). If catch err -> stop
-STARTING_URL = "https://poets.org/poems?field_occasion_target_id=All&field_poem_themes_target_id=1046&field_form_target_id=All&combine=&page=0"
-result = requests.get(STARTING_URL)
-soup = BeautifulSoup(result.text, "html.parser")
-# print(soup.prettify())
-
+STARTING_URL_PREFIX = "https://poets.org/poems?field_occasion_target_id=All&field_poem_themes_target_id=1226&field_form_target_id=All&combine=&page="
 POEM_URL_PREFIX = "https://poets.org"
+page_num = 0
+last_page_num = 0
+result = get_request(page_num)
 
-# Creating db
-with Session(engine) as session:
-    # TODO: Some Loop for page navigation HERE
+#  Page navigation loop
+while result.status_code == 200:
+    print(f"====== Starting Page {page_num + 1} =====")
 
-    '''
-    Links in table, and create metadata list of tuples
-    '''
-    poem_links = []
-    metadata = []
-    table = soup.find("table")
+    soup = BeautifulSoup(result.text, "html.parser")
+    # print(soup.prettify())
 
-    for row in table.find_all("tr"):
-        link = row.find("a")
+    #  if last page not set
+    if last_page_num is None:
+        last_page_num = get_last_page(soup)
+        # print(last_page_num)
 
-        if link:
-            poem_links.append(link["href"])
+    # TODO: page_num < last_page_num
 
-            # metadata parsing
-            meta_columns = row.find_all("td")
-            title, author, year = (
-                meta_columns[0].text.strip(), 
-                meta_columns[1].text.strip(), 
-                meta_columns[2].text.strip()
+    # Create/Start db Session
+    with Session(engine) as session:
+        '''
+        Links in table, and create metadata list of tuples
+        '''
+        poem_links = []
+        metadata = []
+        table = soup.find("table")
+
+        for row in table.find_all("tr"):
+            link = row.find("a")
+
+            if link:
+                # metadata parsing
+                meta_columns = row.find_all("td")
+                title, author, year = (
+                    meta_columns[0].text.strip(), 
+                    meta_columns[1].text.strip(), 
+                    meta_columns[2].text.strip()
+                )
+
+                # if not audio only, add link and meta
+                if "audio only" not in title:
+                    metadata.append((title, author, year))
+                    poem_links.append(link["href"])
+
+        '''
+        Visit each poem and write to db each time poem is visited
+        '''
+
+        # TODO: write poem_scraper fn
+        # TODO: write to db in separate fn
+        for poem_href in poem_links:
+            # Visit Poem
+            poem_page_url = POEM_URL_PREFIX + poem_href
+            poem_result = requests.get(poem_page_url)
+            poem_soup = BeautifulSoup(poem_result.text, "html.parser")
+
+            #  Get block with Poem 
+            poem_block = poem_soup.find("div", class_="field--body")
+
+            poem_text = "".join(poem_block.strings).strip()
+
+            # Poem to db
+            unpack = metadata.pop(0)
+            print(unpack)
+            title, author, year = unpack
+
+            poem_load = Poem(
+                title = title,
+                author = author,
+                year = year,
+                text = poem_text
             )
-            metadata.append((title, author, year))
 
-    '''
-    Visit each poem and write to csv each time poem is visited
-    '''
+            session.add(poem_load)
 
-    for poem_href in poem_links:
+        session.commit()
+        session.close()
 
-        # Visit Poem
-        poem_page_url = POEM_URL_PREFIX + poem_href
-        poem_result = requests.get(poem_page_url)
-        poem_soup = BeautifulSoup(poem_result.text, "html.parser")
+        print(f"====== Page {page_num + 1} Completed =====")
 
-        #  Get block with Poem 
-        poem_block = poem_soup.find("div", class_="field--body")
+        # Not overwhelm server
+        time.sleep(random.randrange(1,5))
 
-        # filter_newline = [line.rstrip() for line in poem_block.stripped_strings if line != "\n"]
-        # poem_text = "\n".join(filter_newline).strip()
-
-        poem_text = "".join(poem_block.strings).strip()
-
-        # # Poem to db
-        unpack = metadata.pop(0)
-        # print(unpack)
-        title, author, year = unpack
-
-        poem_load = Poem(
-            title = title,
-            author = author,
-            year = year,
-            text = poem_text
-        )
-
-        session.add(poem_load)
-
-    session.commit()
-    session.close()
+        page_num += 1
+        result = get_request(page_num)
 
 print("====== Success =======")
